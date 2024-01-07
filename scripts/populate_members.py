@@ -236,7 +236,7 @@ def main():
     while conn:
         print("Successfully connected to the database.")
         cur = conn.cursor()
-        for congress_number in range(117, 119):
+        for congress_number in range(113, 119):
             print(f"Fetching and inserting data for congress number {congress_number}...")
             members_data = fetch_all_members_from_congress(api_key, congress_number)
             insert_members(cur, members_data, api_key)

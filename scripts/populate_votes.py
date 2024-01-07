@@ -49,8 +49,12 @@ def process_and_store_votes(cursor, votes_data, api_key):
                 bill_id = vote.get('bill', {}).get('bill_id')
 
                 if bill_id and not bill_exists(cursor, bill_id):
-                    print(f"Skipped: Vote {i+1} for non-existent bill {bill_id}")
-                    continue
+                    # Add the bill to the bills table
+                    cursor.execute("""
+                        INSERT INTO bills (bill_id)
+                        VALUES (%s);
+                    """, (bill_id,))
+                    print(f"Added bill {bill_id} to the bills table")
 
                 cursor.execute("""
                     INSERT INTO votes (congress, session, chamber, roll_call, bill_id, question, description, vote_type, date, result)
@@ -70,16 +74,25 @@ def process_and_store_votes(cursor, votes_data, api_key):
                 ))
                 vote_id = cursor.fetchone()[0]
                 print(f"Processed: Vote {i+1} inserted with ID {vote_id}")
+                
+                # Function to check if member exists in the database
+                def member_exists(cursor, member_id):
+                    cursor.execute("SELECT 1 FROM members WHERE member_id = %s;", (member_id,))
+                    return cursor.fetchone() is not None
 
                 for position in vote['positions']:
-                    cursor.execute("""
-                        INSERT INTO member_votes (vote_id, member_id, vote_position)
-                        VALUES (%s, %s, %s);
-                    """, (
-                        vote_id,
-                        position['member_id'],
-                        position['vote_position']
-                    ))
+                    member_id = position['member_id']
+                    if member_exists(cursor, member_id):
+                        cursor.execute("""
+                            INSERT INTO member_votes (vote_id, member_id, vote_position)
+                            VALUES (%s, %s, %s);
+                        """, (
+                            vote_id,
+                            member_id,
+                            position['vote_position']
+                        ))
+                    else:
+                        print(f"Warning: Member {member_id} does not exist in the members table")
             else:
                 print(f"Warning: Vote details not found or in unexpected format for summary {i+1}")
     else:
@@ -93,17 +106,28 @@ def main():
         cur = conn.cursor()
         for chamber in chambers:
             offset = 0
-            while True:
+            continue_fetching = True
+
+            while continue_fetching:
                 recent_votes_data = fetch_recent_votes(api_key, chamber, offset)
                 if recent_votes_data and 'results' in recent_votes_data and 'votes' in recent_votes_data['results']:
-                    num_results = len(recent_votes_data['results']['votes'])
-                    if num_results == 0 | offset == 4000:
-                        break
+                    for vote_summary in recent_votes_data['results']['votes']:
+                        bill_id = vote_summary.get('bill', {}).get('bill_id')
+                        if bill_id:
+                            congress_number = int(bill_id.split('-')[-1])
+                            if congress_number < 117:
+                                continue_fetching = False
+                                break
+                    
+                    if continue_fetching:
+                        num_results = len(recent_votes_data['results']['votes'])
+                        if num_results == 0:
+                            break
 
-                    process_and_store_votes(cur, recent_votes_data, api_key)
-                    conn.commit()
-                    print(f"Info: {num_results} votes processed for {chamber} (Offset: {offset}).")
-                    offset += num_results
+                        process_and_store_votes(cur, recent_votes_data, api_key)
+                        conn.commit()
+                        print(f"Info: {num_results} votes processed for {chamber} (Offset: {offset}).")
+                        offset += num_results
                 else:
                     print(f"Error: Failed to fetch or no more votes data for {chamber} (Offset: {offset}).")
                     break
