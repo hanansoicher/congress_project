@@ -1,5 +1,66 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
+import styled from 'styled-components';
+
+const PageContainer = styled.div`
+  padding: 20px;
+  max-width: 800px;
+  margin: 0 auto;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #f4f4f4;
+`;
+
+const Title = styled.h1`
+  color: #004482;
+  text-align: center;
+  font-size: 2.5rem;
+`;
+
+const Section = styled.section`
+  margin-top: 20px;
+  background-color: white;
+  padding: 15px;
+  border-radius: 8px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+`;
+
+const SectionTitle = styled.h2`
+  color: #0056b3;
+  margin-bottom: 10px;
+`;
+
+const List = styled.ul`
+  list-style: none;
+  padding: 0;
+  max-height: 300px; // Set a maximum height
+  overflow-y: auto; // Enable vertical scrolling
+`;
+
+const ListItem = styled.li`
+  margin-bottom: 10px;
+`;
+
+const CommitteeInfo = styled.div`
+  background-color: #e6f7ff;
+  padding: 10px;
+  border-radius: 4px;
+  margin-top: 10px;
+`;
+
+const ExternalLink = styled.a`
+  color: #0066cc;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+`;
+
+const LoadingMessage = styled.div`
+  text-align: center;
+  color: #0066cc;
+  font-size: 1.2rem;
+`;
 
 const CommitteeDetailsPage = () => {
   const { committeeId } = useParams();
@@ -42,42 +103,43 @@ const CommitteeDetailsPage = () => {
   }, [committeeId]);
 
   if (isLoading) {
-    return <div>Loading...</div>;
+    return <LoadingMessage>Loading...</LoadingMessage>;
   }
 
   return (
-    <div>
-      <h1>Committee Details</h1>
+    <PageContainer>
+      <Title>Committee Details</Title>
+
       {committeeDetails && (
-        <div>
-          <h2>{committeeDetails.name}</h2>
+        <CommitteeInfo>
+          <SectionTitle>{committeeDetails.name}</SectionTitle>
           <p>Chamber: {committeeDetails.chamber}</p>
-          <p>URL: <a href={committeeDetails.url}>{committeeDetails.url}</a></p>
-        </div>
+          <p>URL: <ExternalLink href={committeeDetails.url} target="_blank" rel="noopener noreferrer">{committeeDetails.url}</ExternalLink></p>
+        </CommitteeInfo>
       )}
 
-      <section>
-        <h2>Current Members</h2>
+      <Section>
+        <SectionTitle>Current Members</SectionTitle>
         {committeeMembers.length > 0 ? (
-            <ul>
+          <List>
             {committeeMembers.map((member, index) => (
-                <li key={member.member_id + '-' + index}>{member.first_name} {member.last_name}</li>
+              <ListItem key={member.member_id + '-' + index}>{member.first_name} {member.last_name}</ListItem>
             ))}
-            </ul>
+          </List>
         ) : <p>No members available.</p>}
-      </section>
+      </Section>
 
-      <section>
-        <h2>Recent Bills</h2>
+      <Section>
+        <SectionTitle>Recent Bills</SectionTitle>
         {recentBills.length > 0 ? (
-          <ul>
+          <List>
             {recentBills.map(bill => (
-              <li key={bill.bill_id}>{bill.title}</li>
+              <ListItem key={bill.bill_id}>{bill.title}</ListItem>
             ))}
-          </ul>
+          </List>
         ) : <p>No recent bills available.</p>}
-      </section>
-    </div>
+      </Section>
+    </PageContainer>
   );
 };
 

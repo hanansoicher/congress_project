@@ -43,7 +43,7 @@ def fetch_bills(api_key, congress_number, chamber, bill_type, offset=0):
     
 # Fetch all bills from Congress
 def fetch_all_bills_from_congress(api_key, congress_number, bill_type):
-    chambers = ['house', 'senate']
+    chambers = ['house', 'senate', 'both']
     all_bills = []
 
     for chamber in chambers:
@@ -133,8 +133,8 @@ def main():
     if conn:
         print("Successfully connected to the database.")
         cur = conn.cursor()
-        bill_types = ['introduced']
-        for congress_number in range(117, 119):
+        bill_types = ['introduced', 'updated', 'active', 'passed']
+        for congress_number in range(116, 117):
             for bill_type in bill_types:
                 bills_data = fetch_all_bills_from_congress(api_key, congress_number, bill_type)
                 insert_bills(cur, bills_data)

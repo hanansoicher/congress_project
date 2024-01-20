@@ -1,64 +1,74 @@
 :root {
-  font-family: 'Nunito', Arial, sans-serif;
-  line-height: 1.6;
-  font-weight: 300;
-  color-scheme: light dark;
-  color: #333333;
-  background-color: #ffffff;
-  font-synthesis: none;
-  text-rendering: optimizeSpeed;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
+  /* Color scheme */
+  --primary-color: #a2a16b; /* Vibrant blue */
+  --secondary-color: #ded07e; /* Gold */
+  --text-color: #333; /* Dark grey */
+  --background-color: #8da48a; /* White */
+  --link-color: #2a7ea2; /* Soft blue */
+  --link-hover-color: #054283; /* Darker blue */
 
-a {
-  font-weight: 600;
-  color: #007BFF;
-  text-decoration: none;
-}
-a:hover {
-  color: #0056b3;
+  /* Typography */
+  --font-family: 'Arial', sans-serif;
+  --font-size: 16px; /* Base font size */
+  --line-height: 1.6;
+  --font-weight-normal: 400;
+  --font-weight-bold: 700;
+
+  /* Spacing */
+  --base-spacing: 1rem;
 }
 
 body {
+  font-family: var(--font-family);
+  font-size: var(--font-size);
+  line-height: var(--line-height);
+  font-weight: var(--font-weight-normal);
+  color: var(--text-color);
+  background-color: var(--background-color);
   margin: 0;
-  display: grid;
-  place-items: center;
-  min-height: 100vh;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-h1 {
-  font-size: 2.5em;
-  margin: 0.67em 0;
+h1, h2, h3, h4, h5, h6 {
+  font-weight: var(--font-weight-bold);
+  margin-top: var(--base-spacing);
+  margin-bottom: var(--base-spacing);
+}
+
+p {
+  margin-top: 0;
+  margin-bottom: var(--base-spacing);
+}
+
+a {
+  color: var(--link-color);
+  text-decoration: none;
+  transition: color 0.3s ease;
+
+  &:hover {
+    color: var(--link-hover-color);
+  }
 }
 
 button {
   border-radius: 5px;
   border: 2px solid transparent;
-  padding: 0.5em 1em;
-  font-size: 1em;
-  font-weight: 600;
-  background-color: #f8f9fa;
+  padding: var(--base-spacing);
+  font-size: var(--font-size);
+  font-weight: var(--font-weight-bold);
+  background-color: var(--primary-color);
+  color: white;
   cursor: pointer;
   transition: background-color 0.3s, border-color 0.3s;
-}
-button:hover {
-  background-color: #e2e6ea;
-  border-color: #007bff;
-}
-button:focus {
-  outline: 3px solid #80bdff;
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f8f9fa;
-    background-color: #343a40;
+  &:hover {
+    background-color: var(--secondary-color);
   }
-  a:hover {
-    color: #adb5bd;
-  }
-  button {
-    background-color: #495057;
+
+  &:focus {
+    outline: 3px solid var(--secondary-color);
   }
 }

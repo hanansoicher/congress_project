@@ -1,11 +1,89 @@
 import { useEffect, useState } from 'react';
+import styled from 'styled-components';
 import { Link } from 'react-router-dom';
+
+
+const PageContainer = styled.div`
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #f4f4f4;
+`;
+
+const Title = styled.h1`
+  color: #004482;
+  text-align: center;
+  font-size: 2.5rem;
+`;
+
+const CommitteesGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: auto auto;
+  gap: 20px;
+  margin-top: 20px;
+
+  @media (max-width: 768px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const CommitteeSection = styled.section`
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+  padding: 20px;
+  max-height: 300px; // Set a maximum height
+  overflow-y: auto; // Enable vertical scrolling
+  grid-column: span 1;
+
+  &:last-child {
+    grid-column: 1 / -1; // Makes Joint Committees span full width
+  }
+`;
+
+const SectionTitle = styled.h2`
+  color: #0056b3;
+  margin-bottom: 15px;
+`;
+
+const StyledLink = styled(Link)`
+  display: block;
+  padding: 10px 0;
+  font-size: 1rem;
+  font-weight: bold;
+  color: #0066cc;
+  text-decoration: none;
+  border-bottom: 1px solid #f0f0f0;
+
+  &:hover {
+    background-color: #e6f7ff;
+  }
+`;
+
+const LoadingMessage = styled.div`
+  text-align: center;
+  color: #0066cc;
+  font-size: 1.2rem;
+`;
+
+const SearchInput = styled.input`
+  width: 100%;
+  padding: 10px;
+  margin: 20px 0;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-sizing: border-box;
+`;
 
 const CommitteesPage = () => {
     const [houseCommittees, setHouseCommittees] = useState([]);
     const [senateCommittees, setSenateCommittees] = useState([]);
     const [jointCommittees, setJointCommittees] = useState([]);
+    const [searchTerm, setSearchTerm] = useState('');
     const [isLoading, setIsLoading] = useState(true);
+
     // eslint-disable-next-line no-unused-vars
     const [error, setError] = useState(null);
 
@@ -47,41 +125,63 @@ const CommitteesPage = () => {
         loadCommittees();
     }, []);
 
+
+
+
+    const filterCommittees = (committees) => {
+        return committees.filter(committee =>
+            committee.name.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    };
+
+    const filteredHouseCommittees = filterCommittees(houseCommittees);
+    const filteredSenateCommittees = filterCommittees(senateCommittees);
+    const filteredJointCommittees = filterCommittees(jointCommittees);
+
     if (isLoading) {
-        return <div>Loading...</div>;
+        return <LoadingMessage>Loading...</LoadingMessage>;
     }
 
     return (
-        <div>
-            <h1>Committees Page</h1>
+        <PageContainer>
+            <Title>Committees Page</Title>
 
-            <h2>House Committees</h2>
-            <ul>
-                {houseCommittees.map(committee => (
-                    <li key={committee.committee_id}>
-                        <Link to={`/committees/${committee.committee_id}`}>{committee.name}</Link>
-                    </li>
-                ))}
-            </ul>
+            <SearchInput
+                type="text"
+                placeholder="Search for committees..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+            />
 
-            <h2>Senate Committees</h2>
-            <ul>
-                {senateCommittees.map(committee => (
-                    <li key={committee.committee_id}>
-                        <Link to={`/committees/${committee.committee_id}`}>{committee.name}</Link>
-                    </li>
-                ))}
-            </ul>
+            <CommitteesGrid>
+                <CommitteeSection>
+                    <SectionTitle>House Committees</SectionTitle>
+                    {filteredHouseCommittees.map(committee => (
+                        <StyledLink key={committee.committee_id} to={`/committees/${committee.committee_id}`}>
+                            {committee.name}
+                        </StyledLink>
+                    ))}
+                </CommitteeSection>
 
-            <h2>Joint Committees</h2>
-            <ul>
-                {jointCommittees.map(committee => (
-                    <li key={committee.committee_id}>
-                        <Link to={`/committees/${committee.committee_id}`}>{committee.name}</Link>
-                    </li>
-                ))}
-            </ul>
-        </div>
+                <CommitteeSection>
+                    <SectionTitle>Senate Committees</SectionTitle>
+                    {filteredSenateCommittees.map(committee => (
+                        <StyledLink key={committee.committee_id} to={`/committees/${committee.committee_id}`}>
+                            {committee.name}
+                        </StyledLink>
+                    ))}
+                </CommitteeSection>
+
+                <CommitteeSection>
+                    <SectionTitle>Joint Committees</SectionTitle>
+                    {filteredJointCommittees.map(committee => (
+                        <StyledLink key={committee.committee_id} to={`/committees/${committee.committee_id}`}>
+                            {committee.name}
+                        </StyledLink>
+                    ))}
+                </CommitteeSection>
+            </CommitteesGrid>
+        </PageContainer>
     );
 };
 

@@ -1,3 +1,4 @@
+import json
 import os
 import psycopg2
 import requests
@@ -19,24 +20,24 @@ def connect_to_db():
         print(f"Database connection error: {e}")
         return None
 
-def fetch_all_members_from_congress(api_key, congress_number):
-    # Fetch list of members from Congress
-    base_url = "https://api.propublica.org/congress/v1/{}/{}/members.json"
-    headers = {'X-API-Key': api_key}
-    chambers = ['house', 'senate']
-    all_members = []
+# def fetch_all_members_from_congress(api_key, congress_number):
+#     # Fetch list of members from Congress
+#     base_url = "https://api.propublica.org/congress/v1/{}/{}/members.json"
+#     headers = {'X-API-Key': api_key}
+#     chambers = ['house', 'senate']
+#     all_members = []
 
-    for chamber in chambers:
-        url = base_url.format(congress_number, chamber)
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            data = response.json()
-            members = data.get('results')[0].get('members')
-            all_members.extend(members)
-            print(f"Successfully fetched {len(members)} members from {chamber} of congress {congress_number}")
-        else:
-            print(f"Error fetching data for {chamber} of congress {congress_number}: Status code {response.status_code}")
-    return all_members
+#     for chamber in chambers:
+#         url = base_url.format(congress_number, chamber)
+#         response = requests.get(url, headers=headers)
+#         if response.status_code == 200:
+#             data = response.json()
+#             members = data.get('results')[0].get('members')
+#             all_members.extend(members)
+#             print(f"Successfully fetched {len(members)} members from {chamber} of congress {congress_number}")
+#         else:
+#             print(f"Error fetching data for {chamber} of congress {congress_number}: Status code {response.status_code}")
+#     return all_members
 
 def fetch_member_details(api_key, member_id):
     # Fetch detailed information for a specific member
@@ -53,58 +54,40 @@ def fetch_member_details(api_key, member_id):
 # Insert Member Data
 def insert_member_data(cursor, member):
     insert_member_query = """
-            INSERT INTO members (member_id, title, short_title, api_uri, first_name, middle_name, last_name, suffix, date_of_birth, gender, party, leadership_role, twitter_account, facebook_account, youtube_account, govtrack_id, cspan_id, votesmart_id, icpsr_id, crp_id, google_entity_id, fec_candidate_id, url, rss_url, contact_form, in_office, cook_pvi, dw_nominate, ideal_point, seniority, next_election, total_votes, missed_votes, total_present, last_updated, ocd_id, office, phone, fax, state, senate_class, state_rank, lis_id, missed_votes_pct, votes_with_party_pct, votes_against_party_pct) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT DO NOTHING;
-        """    
+        INSERT INTO members (
+            member_id, first_name, middle_name, last_name, suffix, date_of_birth, 
+            gender, url, govtrack_id, cspan_id, votesmart_id, icpsr_id, 
+            twitter_account, facebook_account, youtube_account, crp_id, 
+            google_entity_id, rss_url, in_office, current_party, most_recent_vote, last_updated
+        ) 
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING;
+    """
+
     member_params = (
         member.get('id', None),
-        member.get('title', None),
-        member.get('short_title', None),
-        member.get('api_uri', None),
         member.get('first_name', None),
         member.get('middle_name', None),
         member.get('last_name', None),
         member.get('suffix', None),
         datetime.strptime(member['date_of_birth'], '%Y-%m-%d').date() if member.get('date_of_birth') else None,
         member.get('gender', None),
-        member.get('party', None),
-        member.get('leadership_role', None),
-        member.get('twitter_account', None),
-        member.get('facebook_account', None),
-        member.get('youtube_account', None),
+        member.get('url', None),
         member.get('govtrack_id', None),
         member.get('cspan_id', None),
         member.get('votesmart_id', None),
         member.get('icpsr_id', None),
+        member.get('twitter_account', None),
+        member.get('facebook_account', None),
+        member.get('youtube_account', None),
         member.get('crp_id', None),
         member.get('google_entity_id', None),
-        member.get('fec_candidate_id', None) if member.get('fec_candidate_id') != "" else None,
-        member.get('url', None),
         member.get('rss_url', None),
-        member.get('contact_form', None),
         member.get('in_office', None),
-        member.get('cook_pvi', None),
-        member.get('dw_nominate', None),
-        member.get('ideal_point', None),
-        member.get('seniority', None),
-        member.get('next_election', None),
-        member.get('total_votes', None),
-        member.get('missed_votes', None),
-        member.get('total_present', None),
-        datetime.strptime(member['last_updated'], '%Y-%m-%d %H:%M:%S %z').isoformat() if member.get('last_updated') else None,
-        member.get('ocd_id', None),
-        member.get('office', None),
-        member.get('phone', None),
-        member.get('fax', None),
-        member.get('state', None),
-        member.get('senate_class', None),
-        member.get('state_rank', None),
-        member.get('lis_id', None),
-        float(member['missed_votes_pct']) if member.get('missed_votes_pct') is not None else None,
-        float(member['votes_with_party_pct']) if member.get('votes_with_party_pct') is not None else None,
-        float(member['votes_against_party_pct']) if member.get('votes_against_party_pct') is not None else None
-        )
+        member.get('current_party', None),
+        datetime.strptime(member['most_recent_vote'], '%Y-%m-%d').date() if member.get('most_recent_vote') else None,
+        datetime.strptime(member['last_updated'], '%Y-%m-%d %H:%M:%S %z').isoformat() if member.get('last_updated') else None
+    )
     print(f"Inserting member data: {member}")
     try:
         cursor.execute(insert_member_query, member_params)
@@ -114,11 +97,20 @@ def insert_member_data(cursor, member):
 
 def insert_member_role(cursor, member_id, role):
     insert_member_role_query = """
-        INSERT INTO member_roles (member_id, congress, chamber, title, short_title, state, party, leadership_role, fec_candidate_id, seniority, district, at_large, ocd_id, start_date, end_date, office, phone, fax, contact_form, cook_pvi, dw_nominate, ideal_point, next_election, total_votes, missed_votes, total_present, senate_class, state_rank, lis_id, bills_sponsored, bills_cosponsored, missed_votes_pct, votes_with_party_pct, votes_against_party_pct) 
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+    INSERT INTO member_roles (
+        member_id, congress, chamber, title, short_title, state, party, leadership_role, 
+        fec_candidate_id, seniority, district, at_large, ocd_id, start_date, end_date, 
+        office, phone, fax, contact_form, cook_pvi, dw_nominate, ideal_point, 
+        next_election, total_votes, missed_votes, total_present, senate_class, 
+        state_rank, lis_id, bills_sponsored, bills_cosponsored, missed_votes_pct, 
+        votes_with_party_pct, votes_against_party_pct
+    ) 
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
     """
+
     start_date = datetime.strptime(role['start_date'], '%Y-%m-%d').date() if role.get('start_date') else None
     end_date = datetime.strptime(role['end_date'], '%Y-%m-%d').date() if role.get('end_date') else None
+
     member_role_params = (
         member_id,
         role.get('congress', None),
@@ -128,8 +120,8 @@ def insert_member_role(cursor, member_id, role):
         role.get('state', None),
         role.get('party', None),
         role.get('leadership_role', None),
-        role.get('fec_candidate_id', None) if role.get('fec_candidate_id') != "" else None,
-        role.get('seniority', None),
+        role.get('fec_candidate_id', None),
+        role.get('seniority', 0),
         role.get('district', None),
         role.get('at_large', None),
         role.get('ocd_id', None),
@@ -140,20 +132,20 @@ def insert_member_role(cursor, member_id, role):
         role.get('fax', None),
         role.get('contact_form', None),
         role.get('cook_pvi', None),
-        role.get('dw_nominate', None),
-        role.get('ideal_point', None),
+        role.get('dw_nominate', 0.0),
+        role.get('ideal_point', 0.0),
         role.get('next_election', None),
-        role.get('total_votes', None),
-        role.get('missed_votes', None),
-        role.get('total_present', None),
+        role.get('total_votes', 0),
+        role.get('missed_votes', 0),
+        role.get('total_present', 0),
         role.get('senate_class', None),
         role.get('state_rank', None),
         role.get('lis_id', None),
-        role.get('bills_sponsored', None),
-        role.get('bills_cosponsored', None),
-        float(role.get('missed_votes_pct', 0.0)) if role.get('missed_votes_pct') is not None else 0.0,
-        float(role.get('votes_with_party_pct', 0.0)) if role.get('votes_with_party_pct') is not None else 0.0,
-        float(role.get('votes_against_party_pct', 0.0)) if role.get('votes_against_party_pct') is not None else 0.0
+        role.get('bills_sponsored', 0),
+        role.get('bills_cosponsored', 0),
+        role.get('missed_votes_pct', 0.0),
+        role.get('votes_with_party_pct', 0.0),
+        role.get('votes_against_party_pct', 0.0)
     )
     try:
         cursor.execute(insert_member_role_query, member_role_params)
@@ -161,51 +153,52 @@ def insert_member_role(cursor, member_id, role):
     except psycopg2.Error as e:
         print(f"Error inserting role data for Member ID {member_id}: {e}")
 
-
-
 # Insert Committee and Subcommittee Data
 def insert_committee_data(cursor, member_id, role):
     insert_member_committee_query = """
-                        INSERT INTO member_committees (member_id, committee_name, committee_code, committee_api_uri, committee_side, committee_title, rank_in_party, committee_begin_date, committee_end_date) 
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
-                    """
+        INSERT INTO member_committees (
+            member_id, committee_id, role, rank_in_party, begin_date, end_date
+        ) 
+        VALUES (%s, %s, %s, %s, %s, %s);
+    """
     insert_member_subcommittee_query = """
-                        INSERT INTO member_subcommittees (subcommittee_name, subcommittee_code, subcommittee_parent_committee_id, subcommittee_api_uri, subcommittee_side, subcommittee_title, subcommittee_rank_in_party, subcommittee_begin_date, subcommittee_end_date) 
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
-                    """
+        INSERT INTO member_subcommittees (
+            member_id, subcommittee_id, role, rank_in_party, begin_date, end_date
+        ) 
+        VALUES (%s, %s, %s, %s, %s, %s);
+    """
+
     for committee in role.get('committees', []):
+        committee_begin_date = datetime.strptime(committee['begin_date'], '%Y-%m-%d').date() if committee.get('begin_date') else None
+        committee_end_date = datetime.strptime(committee['end_date'], '%Y-%m-%d').date() if committee.get('end_date') else None
         committee_params = (
-                        member_id, 
-                        committee.get('name', None),
-                        committee.get('code', None),
-                        committee.get('api_uri', None),
-                        committee.get('side', None),
-                        committee.get('title', None),
-                        committee.get('rank_in_party', None),
-                        datetime.strptime(committee['begin_date'], '%Y-%m-%d').date() if committee.get('begin_date') else None,
-                        datetime.strptime(committee['end_date'], '%Y-%m-%d').date() if committee.get('end_date') else None,
+            member_id, 
+            committee.get('code', None),
+            committee.get('title', None),
+            committee.get('rank_in_party', 0),
+            committee_begin_date,
+            committee_end_date
         )
         try:
             cursor.execute(insert_member_committee_query, committee_params)
-            print(f"Committee data inserted for Member ID {member_id}, Committee {committee.get('name')}")
+            print(f"Committee data inserted for Member ID {member_id}, Committee {committee.get('code')}")
         except psycopg2.Error as e:
             print(f"Error inserting committee data for Member ID {member_id}: {e}")
 
     for subcommittee in role.get('subcommittees', []):
+        subcommittee_begin_date = datetime.strptime(subcommittee['begin_date'], '%Y-%m-%d').date() if subcommittee.get('begin_date') else None
+        subcommittee_end_date = datetime.strptime(subcommittee['end_date'], '%Y-%m-%d').date() if subcommittee.get('end_date') else None
         subcommittee_params = (
-                    subcommittee.get('name', None),
-                    subcommittee.get('code', None),
-                    subcommittee.get('parent_committee_id', None),
-                    subcommittee.get('api_uri', None),
-                    subcommittee.get('side', None),
-                    subcommittee.get('title', None),
-                    subcommittee.get('rank_in_party', None),
-                    datetime.strptime(subcommittee['begin_date'], '%Y-%m-%d').date() if subcommittee.get('begin_date') else None,
-                    datetime.strptime(subcommittee['end_date'], '%Y-%m-%d').date() if subcommittee.get('end_date') else None,
-                )
+            member_id,
+            subcommittee.get('code', None),
+            subcommittee.get('title', None),
+            subcommittee.get('rank_in_party', 0),
+            subcommittee_begin_date,
+            subcommittee_end_date
+        )
         try:
             cursor.execute(insert_member_subcommittee_query, subcommittee_params)
-            print(f"Subcommittee data inserted for Member ID {member_id}, Subcommittee {subcommittee.get('name')}")
+            print(f"Subcommittee data inserted for Member ID {member_id}, Subcommittee {subcommittee.get('code')}")
         except psycopg2.Error as e:
             print(f"Error inserting subcommittee data for Member ID {member_id}: {e}")
 
@@ -219,9 +212,29 @@ def execute_query(cursor, query, params):
         print(f"Error executing query: {e}\nQuery: {query}\nParams: {params}")
 
 
+
 def insert_members(cursor, members, api_key):
     for member_summary in members:
+        # Insert summary data from the first API call
+        insert_member_data(cursor, member_summary)
+
+        # Fetch detailed data using the second API call
         member_id = member_summary.get('id')
+        member_details = fetch_member_details(api_key, member_id)
+        if member_details:
+            # Update the member data with detailed information
+            insert_member_data(cursor, member_details)
+
+            # Insert role, committee, and subcommittee data
+            for role in member_details.get('roles', []):
+                insert_member_role(cursor, member_id, role)
+                insert_committee_data(cursor, member_id, role)
+
+def insert_members_from_file(cursor, filename, api_key):
+    with open(filename, 'r') as file:
+        member_ids = json.load(file)
+
+    for member_id in member_ids:
         member_details = fetch_member_details(api_key, member_id)
         if member_details:
             insert_member_data(cursor, member_details)
@@ -229,23 +242,20 @@ def insert_members(cursor, members, api_key):
                 insert_member_role(cursor, member_id, role)
                 insert_committee_data(cursor, member_id, role)
 
-
 def main():
     api_key = 'sZSfHfYSsUR5gN3OzCYoxhwUZq2WMEbATy4L2m0U'
     conn = connect_to_db()
-    while conn:
+    if conn:
         print("Successfully connected to the database.")
         cur = conn.cursor()
-        for congress_number in range(113, 119):
-            print(f"Fetching and inserting data for congress number {congress_number}...")
-            members_data = fetch_all_members_from_congress(api_key, congress_number)
-            insert_members(cur, members_data, api_key)
-            print(f"Completed data insertion for congress number {congress_number}.")
-            conn.commit()
+        # Replace 'member_ids.json' with your actual JSON file path
+        insert_members_from_file(cur, 'member_ids_113_118.json', api_key)
+        conn.commit()
         cur.close()
         conn.close()
         print("Database update completed successfully.")
-    print("Failed to connect to the database.")
+    else:
+        print("Failed to connect to the database.")
 
 if __name__ == "__main__":
     main()
