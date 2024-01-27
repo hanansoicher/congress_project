@@ -5,8 +5,6 @@ import psycopg2
 from datetime import datetime
 import requests
 
-# JSON Decode Error: Invalid \escape: line 671 column 1793 (char 82010)
-
 # Database connection function
 def connect_to_db():
     db_conn_info = {
@@ -133,8 +131,8 @@ def main():
     if conn:
         print("Successfully connected to the database.")
         cur = conn.cursor()
-        bill_types = ['introduced', 'updated', 'active', 'passed']
-        for congress_number in range(116, 117):
+        bill_types = ['introduced']
+        for congress_number in range(113, 119):
             for bill_type in bill_types:
                 bills_data = fetch_all_bills_from_congress(api_key, congress_number, bill_type)
                 insert_bills(cur, bills_data)

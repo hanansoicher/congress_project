@@ -115,7 +115,7 @@ def main():
                         bill_id = vote_summary.get('bill', {}).get('bill_id')
                         if bill_id:
                             congress_number = int(bill_id.split('-')[-1])
-                            if congress_number < 117:
+                            if congress_number < 113:
                                 continue_fetching = False
                                 break
                     
