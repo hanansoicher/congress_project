@@ -30,9 +30,7 @@ def fetch_all_reports(start_congress=113):
         all_reports = pd.concat([all_reports, reports], ignore_index=True)
     return all_reports
 
-# Fetch reports for all Congresses from 113th to 117th
 reports_df = fetch_all_reports()
-
     
 def fetch_report_text(congress, reportType, reportNumber):
     url = f"{BASE_URL}/committee-report/{congress}/{reportType}/{reportNumber}/text?api_key={API_KEY}"
