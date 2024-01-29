@@ -12,6 +12,7 @@ from nltk.tokenize import word_tokenize
 from nltk.stem import WordNetLemmatizer
 from sklearn.feature_extraction.text import TfidfVectorizer
 import joblib
+from requests.exceptions import RequestException
 
 API_KEY = 'Gej1jav3dg99KkJbAqneBc40kxt7pbeyODF9r1Tt'
 BASE_URL = 'https://api.congress.gov/v3'
@@ -26,7 +27,6 @@ def get_reports_by_congress(congress, limit=250):
         print(f"Failed to fetch reports for Congress {congress}: {response.status_code}")
         return pd.DataFrame()
 
-# Function to get the list of committee reports
 def get_committee_reports(from_date, to_date):
     url = f"{BASE_URL}/committee-report?api_key={API_KEY}&fromDateTime={from_date}T00:00:00Z&toDateTime={to_date}T00:00:00Z&limit=20"
     response = requests.get(url)
@@ -36,42 +36,73 @@ def get_committee_reports(from_date, to_date):
         print(f"Failed to fetch reports: {response.status_code}")
         return pd.DataFrame()
 
-# Function to get specific report text
 def fetch_report_text(congress, reportType, reportNumber):
     url = f"{BASE_URL}/committee-report/{congress}/{reportType}/{reportNumber}/text?api_key={API_KEY}"
-    response = requests.get(url)
     
-    if response.status_code == 200:
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+
         report_data = response.json()
         text_formats = report_data['text'][0]['formats']
 
-        text_url = None
-        for format in text_formats:
-            if format['type'] == 'Formatted Text':
-                text_url = format['url']
-                break
-            elif format['type'] == 'PDF':
-                text_url = format['url']
-
-        if text_url:
-            print(f"Fetching report text from URL: {text_url}")
-            if text_url.endswith('.pdf'):
-                with requests.get(text_url, stream=True) as r:
-                    r.raise_for_status()
-                    with io.BytesIO() as pdf_file:
-                        for chunk in r.iter_content(chunk_size=8192):
-                            pdf_file.write(chunk)
-                        pdf_file.seek(0)                
-                        pdf_reader = PyPDF2.PdfReader(pdf_file)
-                        return ''.join([page.extract_text() for page in pdf_reader.pages])
+        formatted_text_url = next((f['url'] for f in text_formats if f['type'] == 'Formatted Text'), None)
+        if formatted_text_url:
+            formatted_text_response = requests.get(formatted_text_url)
+            if formatted_text_response.status_code == 200:
+                return formatted_text_response.text
             else:
-                return requests.get(text_url).text
+                print(f"Failed to fetch formatted text: {formatted_text_response.status_code}")
         else:
-            print("No suitable format found.")
-            return ""
-    else:
-        print(f"Failed to fetch report text: {response.status_code}")
+            print("Formatted Text format not found.")
+
+        print("Skipping PDF processing.")
         return ""
+
+    except requests.RequestException as e:
+        print(f"Failed to fetch report text: {e}")
+        return ""
+
+
+def fetch_report_text_limit_pdfs(congress, reportType, reportNumber, max_size=10*1024*1024):  # 10 MB size limit
+    url = f"{BASE_URL}/committee-report/{congress}/{reportType}/{reportNumber}/text?api_key={API_KEY}"
+    
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+
+        report_data = response.json()
+        text_formats = report_data['text'][0]['formats']
+
+        # First, check for 'Formatted Text' type and process it
+        formatted_text_url = next((f['url'] for f in text_formats if f['type'] == 'Formatted Text'), None)
+        if formatted_text_url:
+            return requests.get(formatted_text_url).text
+
+        for format in text_formats:
+            if format['type'] == 'PDF':
+                pdf_url = format['url']
+                head_response = requests.head(pdf_url)
+                content_length = int(head_response.headers.get('Content-Length', 0))
+                print(content_length)
+                if content_length > max_size:
+                    print(f"PDF is too large to process: {content_length} bytes.")
+                    continue  
+                
+                pdf_response = requests.get(pdf_url, stream=True)
+                pdf_response.raise_for_status()
+                with io.BytesIO(pdf_response.content) as pdf_file:
+                    pdf_reader = PyPDF2.PdfReader(pdf_file)
+                    text = ''.join([page.extract_text() for page in pdf_reader.pages])
+                    return text
+
+        print("No suitable format found.")
+        return ""
+
+    except RequestException as e:
+        print(f"Failed to fetch report text: {e}")
+    
+    return ""
 
 tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 model = BertModel.from_pretrained('bert-base-uncased')
@@ -87,20 +118,13 @@ def encode_gics_descriptions(gics_df):
     return outputs.pooler_output
 
 def preprocess_text(text):
-    # Convert to lowercase
     text = text.lower()
-
-    # Remove punctuation
     text = re.sub(r'[^\w\s]', '', text)
-
-    # Tokenize
     tokens = word_tokenize(text)
 
-    # Remove stopwords
     stop_words = set(stopwords.words('english'))
     tokens = [word for word in tokens if word not in stop_words]
 
-    # Lemmatization
     lemmatizer = WordNetLemmatizer()
     tokens = [lemmatizer.lemmatize(word) for word in tokens]
 
@@ -112,13 +136,12 @@ vectorizer = joblib.load('./fitted_tfidf_vectorizer.joblib')
 def classify_reports(congress, gics_df, vectorizer):
     reports_df = get_reports_by_congress(congress)
     print(f"Number of reports fetched: {len(reports_df)}")
-    
     # Create embeddings for GICS descriptions
     gics_embeddings = vectorizer.transform(gics_df['SubIndustryDescription']).toarray()
+    similarity_scores_list = []
 
-    # Iterate through each report
     for index, row in reports_df.iterrows():
-        print(f"Processing report {index + 1}/{len(reports_df)}") # type: ignore
+        print(f"Processing report {index + 1}/{len(reports_df)} from url: {row['url']}") # type: ignore
         report_text = fetch_report_text(row['congress'], row['type'], row['number'])
         processed_text = preprocess_text(report_text)
         print(f"Report processed. Length of processed text: {len(processed_text)} characters")
@@ -126,23 +149,22 @@ def classify_reports(congress, gics_df, vectorizer):
         # Create embeddings for the report text
         report_embedding = vectorizer.transform([processed_text]).toarray()
 
-        # Compute cosine similarity with GICS embeddings
         similarity_scores = cosine_similarity(report_embedding, gics_embeddings).flatten()
+        similarity_scores_list.append(similarity_scores) 
 
-        # Find all GICS classifications that exceed the similarity threshold
         matching_indices = similarity_scores >= SIMILARITY_THRESHOLD
-        matches = gics_df.iloc[matching_indices]['SubIndustryDescription'].tolist()
-
-        if not matches:
-            # No match above threshold, take the highest scoring one
+        if any(matching_indices):
+            matched_gics = gics_df.iloc[matching_indices][['SubIndustry']]
+            matched_subindustries = matched_gics['SubIndustry'].tolist()
+        else:
             highest_score_index = similarity_scores.argmax()
-            matches = [gics_df.iloc[highest_score_index]['SubIndustryDescription']]
+            matched_subindustries = [gics_df.iloc[highest_score_index]['SubIndustry']]
 
-        # Store the results in the DataFrame
-        reports_df.at[index, 'Closest GICS'] = ', '.join(matches)
-        print(f"Closest GICS: {', '.join(matches)}")
+        reports_df.at[index, 'Closest GICS SubIndustry'] = ', '.join(matched_subindustries)
+        print(f"Closest GICS SubIndustry: {', '.join(matched_subindustries)}")
 
-    # Save the DataFrame
+    reports_df['Similarity Scores'] = similarity_scores_list
+
     reports_df.to_csv(f'./generated_data/classified_reports_{congress}.csv', index=False)
     return reports_df
 

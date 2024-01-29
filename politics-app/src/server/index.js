@@ -1,4 +1,5 @@
 import express from 'express';
+import { spawn } from 'child_process';
 import cors from 'cors';
 import { query } from './db.js';
 import 'dotenv/config';
@@ -6,6 +7,26 @@ import 'dotenv/config';
 const app = express();
 const port = 3001;
 app.use(cors()); 
+
+app.get('/search/:ticker', async (req, res) => {
+    const ticker = req.params.ticker;
+
+    const pythonProcess = spawn('python3', ['compare_asset_to_reports.py', ticker]);
+
+    pythonProcess.stdout.on('data', (data) => {
+        try {
+            const reports = JSON.parse(data.toString());
+            res.json(reports);
+        } catch (error) {
+            res.status(500).json({ error: "Error parsing Python script output." });
+        }
+    });
+
+    pythonProcess.stderr.on('data', (data) => {
+        console.error(`stderr: ${data}`);
+        res.status(500).json({ error: data.toString() });
+    });
+});
 
 app.get('/api/members/current', async (req, res) => {
     try {
