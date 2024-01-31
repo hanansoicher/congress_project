@@ -1,3 +1,4 @@
+import json
 import time
 import pandas as pd
 import requests
@@ -15,6 +16,7 @@ import psycopg2
 import psycopg2.extras
 from requests.exceptions import RequestException
 import spacy
+import xml.etree.ElementTree as ET
 nltk.download('vader_lexicon', quiet=True)
 nltk.download('punkt', quiet=True)
 nltk.download('wordnet', quiet=True)
@@ -30,48 +32,119 @@ DATABASE_CONFIG = {
     'host': 'localhost'
 }
 RATE_LIMIT_CODE = 429
-RATE_LIMIT_WAIT = 3600 
+RATE_LIMIT_WAIT = 1800 
+vectorizer = joblib.load('./fitted_tfidf_vectorizer.joblib')
 
 def fetch_reports_from_db():
+    print("Fetching reports from the database...")
     try:
-        conn = psycopg2.connect(**DATABASE_CONFIG) # type: ignore
+        conn = psycopg2.connect(**DATABASE_CONFIG) #type: ignore
         cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
         cursor.execute("SELECT * FROM committee_reports")
         reports = cursor.fetchall()
         cursor.close()
         conn.close()
+        print(f"Fetched {len(reports)} reports.")
         return reports
     except Exception as e:
         print(f"Database error: {e}")
         return []
 
 def fetch_report_text(congress, reportType, reportNumber):
-    url = f"{BASE_URL}/committee-report/{congress}/{reportType}/{reportNumber}/text?api_key={API_KEY}"
-    while True:
-        response = requests.get(url)
+    print(f"Fetching report text for Congress {congress}, Type {reportType}, Number {reportNumber}...")
+    text_url = fetch_report_text_from_db(congress, reportType, reportNumber)
+    if not text_url:
+        print("URL not found in database, constructing URL...")
+        text_url = f"{BASE_URL}/committee-report/{congress}/{reportType}/{reportNumber}/text?api_key={API_KEY}"
+    
+    attempt = 0
+    while attempt < 3:
+        print(f"Attempt {attempt+1}: Fetching report text...")
+        response = requests.get(text_url)
         if response.status_code == RATE_LIMIT_CODE:
-            print("Rate limit exceeded. Waiting for 1 hour...")
+            print("Rate limit exceeded. Waiting to retry...")
             time.sleep(RATE_LIMIT_WAIT)
+            attempt += 1
+            continue
         elif response.status_code == 200:
-            report_data = response.json()
-            text_formats = report_data['text'][0]['formats']
-            formatted_text_url = next((f['url'] for f in text_formats if f['type'] == 'Formatted Text'), None)
-            if formatted_text_url:
-                formatted_text_response = requests.get(formatted_text_url)
-                if formatted_text_response.status_code == 200:
-                    return formatted_text_response.text
+            try:
+                data = json.loads(response.text)
+                formatted_text_url = None
+                for item in data.get('text', []):
+                    for format_item in item.get('formats', []):
+                        if format_item.get('type') == 'Formatted Text':
+                            formatted_text_url = format_item.get('url')
+                            break
+                    if formatted_text_url:
+                        print("Formatted text URL found, fetching content...")
+                        return fetch_content_with_rate_limit_handling(formatted_text_url)
                 else:
-                    print(f"Failed to fetch formatted text: {formatted_text_response.status_code}")
+                    print("Formatted Text URL not found in JSON.")
                     return ""
-            else:
-                print("Formatted Text format not found.")
+            except json.JSONDecodeError as e:
+                print(f"Error parsing JSON response: {e}")
                 return ""
         else:
-            print(f"Failed to fetch report text: {response.status_code}")
+            print(f"Failed to fetch report text: HTTP {response.status_code}")
             return ""
+        break
 
+def fetch_content_with_rate_limit_handling(url):
+    print(f"Fetching content from URL with rate limit handling: {url}")
+    attempt = 0
+    while attempt < 3:
+        response = requests.get(url)
+        if response.status_code == RATE_LIMIT_CODE:
+            print("Rate limit exceeded. Waiting to retry...")
+            time.sleep(RATE_LIMIT_WAIT)
+            attempt += 1
+        elif response.status_code == 200:
+            print("Content successfully fetched.")
+            return response.text
+        else:
+            print(f"Failed to fetch content: HTTP {response.status_code}")
+            return ""
+    return ""
+
+def fetch_report_text_from_db(congress, reportType, reportNumber):
+    print(f"Attempting to fetch the report text URL from the database for Congress {congress}, Type {reportType}, Number {reportNumber}...")
+    try:
+        conn = psycopg2.connect(**DATABASE_CONFIG) #type: ignore
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT text_url FROM committee_reports
+            WHERE congress = %s AND report_type = %s AND report_number = %s;
+        """, (congress, reportType, reportNumber))
+        result = cursor.fetchone()
+        conn.close()
+        if result:
+            print("URL found in database.")
+        else:
+            print("URL not found in database.")
+        return result[0] if result else None
+    except Exception as e:
+        print(f"Database error: {e}")
+        return None
+
+def save_report_text_to_db(congress, reportType, reportNumber, text):
+    print(f"Saving report text to the database for Congress {congress}, Type {reportType}, Number {reportNumber}...")
+    try:
+        conn = psycopg2.connect(**DATABASE_CONFIG) #type: ignore
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE committee_reports
+            SET report_text = %s
+            WHERE congress = %s AND report_type = %s AND report_number = %s;
+        """, (text, congress, reportType, reportNumber))
+        conn.commit()
+        cur.close()
+        conn.close()
+        print("Report text saved successfully.")
+    except Exception as e:
+        print(f"Database error while saving report text: {e}")
 
 def preprocess_text(text):
+    print("Preprocessing text...")
     text = text.lower()
     text = re.sub(r'[^\w\s]', '', text)
     tokens = word_tokenize(text)
@@ -79,130 +152,127 @@ def preprocess_text(text):
     tokens = [word for word in tokens if word not in stop_words]
     lemmatizer = WordNetLemmatizer()
     tokens = [lemmatizer.lemmatize(word) for word in tokens]
-    return ' '.join(tokens)
+    preprocessed_text = ' '.join(tokens)
+    print("Text preprocessing completed.")
+    return preprocessed_text
 
-def apply_nlp(report_texts):
+def apply_nlp(text):
+    print("Applying NLP to text...")
     nlp = spacy.load('en_core_web_sm')
     sia = SentimentIntensityAnalyzer()
-    sentiments = []
-    entities = []
-    dependencies = []
-    dictionary = corpora.Dictionary([text.split() for text in report_texts])
-    corpus = [dictionary.doc2bow(text.split()) for text in report_texts]
-    lda_model = models.LdaModel(corpus, num_topics=10, id2word=dictionary, passes=15)
-    topics = []
+    sentiment = sia.polarity_scores(text)
+    doc = nlp(text)
+    entities = [(ent.text, ent.label_) for ent in doc.ents]
+    dependencies = [(token.text, token.dep_, token.head.text) for token in doc]
+    print("NLP application completed.")
+    return sentiment, entities, dependencies
 
-    for text in report_texts:
-        # Sentiment Analysis
-        sentiment = sia.polarity_scores(text)
-        sentiments.append(sentiment)
-
-        # NER and Dependency Parsing
-        doc = nlp(text)
-        entities.append([(ent.text, ent.label_) for ent in doc.ents])
-        dependencies.append([(token.text, token.dep_, token.head.text) for token in doc])
-
-        # Topic Modeling
-        topics.append(lda_model.get_document_topics(dictionary.doc2bow(text.split())))
-
-    return sentiments, topics, entities, dependencies
-
-vectorizer = joblib.load('./fitted_tfidf_vectorizer.joblib')
-
-
-def classify_reports(reports_df, gics_df, vectorizer):
-    print(f"Number of reports fetched: {len(reports_df)}")
-    # Create embeddings for GICS descriptions
+def classify_report(report_text, gics_df, vectorizer):
+    print("Classifying report...")
+    report_embedding = vectorizer.transform([report_text]).toarray()
     gics_embeddings = vectorizer.transform(gics_df['SubIndustryDescription']).toarray()
-    classifications = []
-
-    for index, row in reports_df.iterrows():
-        print(f"Processing report {index + 1}/{len(reports_df)}")
-        report_text = fetch_report_text(row['congress'], row['type'], row['number'])
-        processed_text = preprocess_text(report_text)
-        print(f"Report processed. Length of processed text: {len(processed_text)} characters")
-
-        # Create embeddings for the report text
-        report_embedding = vectorizer.transform([processed_text]).toarray()
-
-        similarity_scores = cosine_similarity(report_embedding, gics_embeddings).flatten()
-        matched_gics = gics_df.iloc[similarity_scores >= 0.75]['SubIndustry'].tolist()
-
-        classifications.append((matched_gics, similarity_scores.tolist()))
-
-    return classifications
+    similarity_scores = cosine_similarity(report_embedding, gics_embeddings).flatten()
+    matched_gics = gics_df.iloc[similarity_scores >= 0.75]['SubIndustry'].tolist()
+    print("Report classification completed.")
+    return matched_gics, similarity_scores.tolist()
 
 def insert_classifications_into_db(report_id, classifications):
+    print(f"Inserting classifications into the database for report ID {report_id}...")
     try:
-        conn = psycopg2.connect(**DATABASE_CONFIG) # type: ignore
+        conn = psycopg2.connect(**DATABASE_CONFIG) #type: ignore
         cur = conn.cursor()
 
         for closest_gics_subindustry, similarity_scores in classifications:
             similarity_scores_str = ','.join(map(str, similarity_scores))
 
-            cur.execute("INSERT INTO ReportClassifications (ReportID, ClosestGICSSubIndustry, SimilarityScores) VALUES (%s, %s, %s)",
+            cur.execute("INSERT INTO ReportClassifications (report_id, closestgicssubIndustry, similarityscores) VALUES (%s, %s, %s)",
                         (report_id, closest_gics_subindustry, similarity_scores_str))
 
         conn.commit()
         cur.close()
         conn.close()
+        print("Classifications inserted successfully.")
     except Exception as e:
         print(f"An error occurred while inserting classification into the database: {e}")
 
 def insert_nlp_results_into_db(nlp_results):
+    print("Inserting NLP results into the database...")
     try:
-        conn = psycopg2.connect(**DATABASE_CONFIG) # type: ignore
+        conn = psycopg2.connect(**DATABASE_CONFIG) #type: ignore
         cur = conn.cursor()
 
-        # Insert data
         for result in nlp_results:
-            report_id, sentiment, topics, entities, dependencies = result
+            report_id, sentiment, entities, dependencies = result
 
-            # Insert into SentimentAnalysis table
-            cur.execute("INSERT INTO SentimentAnalysis (ReportID, Negative, Neutral, Positive, Compound) VALUES (%s, %s, %s, %s, %s)",
+            cur.execute("INSERT INTO SentimentAnalysis (report_id, negative, neutral, positive, compound) VALUES (%s, %s, %s, %s, %s)",
                         (report_id, sentiment['neg'], sentiment['neu'], sentiment['pos'], sentiment['compound']))
 
-            # Insert into Topics table
-            for topic in topics:
-                topic_id, contribution = topic
-                cur.execute("INSERT INTO Topics (ReportID, TopicID, Contribution) VALUES (%s, %s, %s)",
-                            (report_id, topic_id, contribution))
-
-            # Insert into NamedEntities table
             for entity in entities:
                 entity_text, entity_type = entity
-                cur.execute("INSERT INTO NamedEntities (ReportID, Entity, EntityType) VALUES (%s, %s, %s)",
+                cur.execute("INSERT INTO NamedEntities (report_id, entity, entitytype) VALUES (%s, %s, %s)",
                             (report_id, entity_text, entity_type))
 
-            # Insert into Dependencies table
             for dependency in dependencies:
                 word, dep, head = dependency
-                cur.execute("INSERT INTO Dependencies (ReportID, Word, Dependency, Head) VALUES (%s, %s, %s, %s)",
+                cur.execute("INSERT INTO Dependencies (report_id, word, dependency, head) VALUES (%s, %s, %s, %s)",
                             (report_id, word, dep, head))
 
         conn.commit()
         cur.close()
         conn.close()
+        print("NLP results inserted successfully.")
     except Exception as e:
         print(f"An error occurred while inserting into the database: {e}")
 
-def main():
-    reports = fetch_reports_from_db()
-    reports_df = pd.DataFrame(reports, columns=['report_id', 'congress', 'chamber', 'is_conference_report', 'issue_date', 'report_number', 'part', 'session_number', 'text_url', 'title', 'report_type', 'update_date'])
+def process_reports(reports):
+    print("Processing reports...")
+    dictionary = corpora.Dictionary()
+    corpus = []
     nlp_results = []
+
+    for report in reports:
+        processed_text = report['report_text']
+        tokens = processed_text.split()
+        dictionary.add_documents([tokens])
+        corpus.append(dictionary.doc2bow(tokens))
+    
+    lda_model = models.LdaModel(corpus, num_topics=10, id2word=dictionary, passes=15)
+    print("LDA model applied.")
+
+    for report in reports:
+        sentiment, entities, dependencies = apply_nlp(report['report_text'])
+        topics = lda_model.get_document_topics(dictionary.doc2bow(report['report_text'].split(" ")))
+        nlp_results.append({
+            'report_id': report['report_id'],
+            'sentiment': sentiment,
+            'entities': entities,
+            'dependencies': dependencies,
+            'topics': topics
+        })
+
+    print("Reports processed.")
+    return nlp_results
+
+def main():
+    print("Starting main process...")
+    reports = fetch_reports_from_db()
+    
+    for report in reports:
+        if not report['report_text']:
+            print("Report text not found, fetching from API...")
+            text = fetch_report_text(report['congress'], report['report_type'], report['report_number'])
+            save_report_text_to_db(report['congress'], report['report_type'], report['report_number'], preprocess_text(text))
+    
+    reports = fetch_reports_from_db()
+    nlp_results = process_reports(reports)
+    insert_nlp_results_into_db(nlp_results)
+
     gics_df = pd.read_csv(GICS_FILE_PATH)
-
-    for _, report in reports_df.iterrows():
-        print(report)
-        report_text = preprocess_text(fetch_report_text(report['congress'], report['report_type'], report['report_number']))
-        sentiments, topics, entities, dependencies = apply_nlp([report_text])
-        nlp_result = (report['report_id'], sentiments[0], topics[0], entities[0], dependencies[0])
-        nlp_results.append(nlp_result)
-
-        classifications = classify_reports(report, gics_df, vectorizer)
+    for report in reports:
+        classifications = classify_report(report['report_text'], gics_df, vectorizer)
         insert_classifications_into_db(report['report_id'], classifications)
 
-    insert_nlp_results_into_db(nlp_results)
+    print("Main process completed.")
 
 if __name__ == "__main__":
     main()
