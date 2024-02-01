@@ -224,13 +224,18 @@ def insert_nlp_results_into_db(nlp_results):
     except Exception as e:
         print(f"An error occurred while inserting into the database: {e}")
 
+def split_text(text, max_length=1000000):
+    return [text[i:i+max_length] for i in range(0, len(text), max_length)]
+
 def process_reports(reports):
     print("Processing reports...")
     dictionary = corpora.Dictionary()
     corpus = []
     nlp_results = []
 
-    for report in reports:
+    total_reports = len(reports)
+    for index, report in enumerate(reports, start=1):
+        print(f"Processing report {index} of {total_reports}")
         processed_text = report['report_text']
         tokens = processed_text.split()
         dictionary.add_documents([tokens])
@@ -239,19 +244,45 @@ def process_reports(reports):
     lda_model = models.LdaModel(corpus, num_topics=10, id2word=dictionary, passes=15)
     print("LDA model applied.")
 
-    for report in reports:
-        sentiment, entities, dependencies = apply_nlp(report['report_text'])
-        topics = lda_model.get_document_topics(dictionary.doc2bow(report['report_text'].split(" ")))
+    for index, report in enumerate(reports, start=1):
+        print(f"Applying NLP to report {index} of {total_reports}")
+        report_text = report['report_text']
+
+        if len(report_text) >= 1000000:
+            split_report_texts = split_text(report_text)
+            aggregated_sentiment = {'neg': 0, 'neu': 0, 'pos': 0, 'compound': 0}
+            entities = []
+            dependencies = []
+
+            for split_index, text in enumerate(split_report_texts, start=1):
+                print(f" - Processing segment {split_index} of {len(split_report_texts)} for report {index}")
+                sentiment, text_entities, text_dependencies = apply_nlp(text)
+                aggregated_sentiment['neg'] += int(sentiment['neg'])
+                aggregated_sentiment['neu'] += int(sentiment['neu'])
+                aggregated_sentiment['pos'] += int(sentiment['pos'])
+                aggregated_sentiment['compound'] += int(sentiment['compound'])
+                entities.extend(text_entities)
+                dependencies.extend(text_dependencies)
+
+            # Average the sentiment scores
+            num_texts = len(split_report_texts)
+            aggregated_sentiment = {k: v / num_texts for k, v in aggregated_sentiment.items()}
+        else:
+            aggregated_sentiment, entities, dependencies = apply_nlp(report_text)
+
+        topics = lda_model.get_document_topics(dictionary.doc2bow(report_text.split(" ")))
         nlp_results.append({
             'report_id': report['report_id'],
-            'sentiment': sentiment,
+            'sentiment': aggregated_sentiment,
             'entities': entities,
             'dependencies': dependencies,
             'topics': topics
         })
+        print(f"Completed NLP for report {index}")
 
-    print("Reports processed.")
+    print("Reports processing completed.")
     return nlp_results
+
 
 def main():
     print("Starting main process...")
@@ -262,7 +293,7 @@ def main():
             print("Report text not found, fetching from API...")
             text = fetch_report_text(report['congress'], report['report_type'], report['report_number'])
             save_report_text_to_db(report['congress'], report['report_type'], report['report_number'], preprocess_text(text))
-    
+    print("All report texts fetched")
     reports = fetch_reports_from_db()
     nlp_results = process_reports(reports)
     insert_nlp_results_into_db(nlp_results)
