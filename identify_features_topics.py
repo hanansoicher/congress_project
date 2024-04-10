@@ -22,6 +22,7 @@ with open('blacklist.txt', 'r') as file:
 
 # Preprocess the text
 def preprocess_text(text):
+    
     text = text.lower()
     text = re.sub(r'\W', ' ', text)
     tokens = nltk.word_tokenize(text)
