@@ -12,12 +12,18 @@ import re
 import ast
 import json
 
-# Load reports from the database
-conn = sqlite3.connect('politics_db.sqlite')
-reports_df = pd.read_sql_query('SELECT report_text, ReportNumber, Title FROM committee_reports', conn)
-conn.close()
+conn = sqlite3.connect('./data/reports_db.sqlite')
+query = """
+SELECT cr.report_text, cr.ReportNumber, cr.Title
+FROM committee_reports cr
+LEFT JOIN report_classifications rc ON cr.ReportNumber = rc.ReportNumber
+WHERE rc.ReportNumber IS NULL
+"""
 
-# Preprocessing function
+reports_df = pd.read_sql_query(query, conn)
+
+# reports_df = pd.read_sql_query('SELECT report_text, ReportNumber, Title FROM committee_reports LIMIT 100', conn)
+
 def preprocess_text(text):
     text = text.lower()
     text = re.sub(r'\W', ' ', text)
@@ -27,10 +33,8 @@ def preprocess_text(text):
     tokens = [lemmatizer.lemmatize(word) for word in tokens]
     return ' '.join(tokens)
 
-# Apply preprocessing to report texts
 reports_df['report_text'] = reports_df['report_text'].apply(preprocess_text)
 
-# Preprocess and vectorize the report texts and expanded descriptions
 tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 model = BertModel.from_pretrained('bert-base-uncased')
 
@@ -45,29 +49,20 @@ gics_df = pd.read_csv('./data/gics-descriptions-embeddings.csv')
 gics_df['BERT_Embeddings'] = gics_df['BERT_Embeddings'].apply(ast.literal_eval)
 gics_vectors = torch.stack([torch.tensor(embedding) for embedding in gics_df['BERT_Embeddings']])
 
-# Calculate the cosine similarity between report vectors and GICS vectors
 similarity_scores = cosine_similarity(report_vectors, gics_vectors)
 
-# Classify each report into the top 5 industries with their similarity scores
+similarity_threshold = 0.75
+
 classified_reports = []
 for i, scores in enumerate(similarity_scores):
-    top_indices = scores.argsort()[-5:][::-1]  # Get indices of top 5 scores
-    top_industries = [(gics_df['SubIndustry'][index], scores[index]) for index in top_indices]
-    classified_reports.append((reports_df['Title'][i], top_industries))
+    above_threshold_indices = [index for index, score in enumerate(scores) if score > similarity_threshold]
+    above_threshold_industries = [(gics_df['SubIndustry'][index], scores[index]) for index in above_threshold_indices]
+    classified_reports.append((reports_df['ReportNumber'][i], reports_df['Title'][i], above_threshold_industries))
 
-# Convert the classification results to a DataFrame
-classified_reports_df = pd.DataFrame(classified_reports, columns=['ReportNumber', 'ReportTitle', 'Top5ClassifiedSubIndustries'])
+classified_reports_df = pd.DataFrame(classified_reports, columns=['ReportNumber', 'ReportTitle', 'ClassifiedSubIndustries'])
 
-# Create a new SQLite database to store the classifications
-classification_conn = sqlite3.connect('classification_db.sqlite')
+classified_reports_df['ClassifiedSubIndustries'] = classified_reports_df['ClassifiedSubIndustries'].apply(lambda x: [(industry, float(score)) for industry, score in x]).apply(json.dumps)
+classified_reports_df.to_sql('report_classifications', conn, if_exists='replace', index=False)
 
-
-classified_reports_df['Top5ClassifiedSubIndustries'] = classified_reports_df['Top5ClassifiedSubIndustries'].apply(lambda x: [(industry, float(score)) for industry, score in x]).apply(json.dumps)
-classified_reports_df.to_sql('classified_reports', classification_conn, if_exists='replace', index=False)
-
-# Close the connection
-classification_conn.close()
-
-print("Classifications saved to the SQLite database successfully.")
-
-
+conn.close()
+print("Classifications saved to the reports_db SQLite database successfully.")

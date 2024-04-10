@@ -1,0 +1,38 @@
+.home-container {
+  display: flex;
+  justify-content: space-between;
+  padding: 20px;
+  border: 1px solid #ccc;
+  background-color: #f9f9f9;
+}
+
+.search-section {
+  width: 48%;
+}
+
+.search-container input {
+  width: 95.4%;
+  overflow-x: hidden;
+  padding: 10px;
+  margin-bottom: 10px;
+  border: 1px solid #ccc;
+  background-color: #fff;
+}
+
+.results-container {
+  text-align: left;
+  height: 200px;
+  overflow: auto;
+  border: 1px solid #ccc;
+  background-color: #fff;
+}
+
+.result-item {
+  padding: 5px;
+  cursor: pointer;
+  border-bottom: 1px solid #ccc;
+}
+
+.result-item:hover {
+  background-color: #e6e6e6;
+}

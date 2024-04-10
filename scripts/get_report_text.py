@@ -18,9 +18,9 @@ def fetch_report_info_from_db(rowid):
 
 def parse_report_number(report_number):
     parts = report_number.split()
-    report_type = parts[0] + parts[1].replace('ept.', 'pt.')  # Replace 'ept.' with 'pt.' in 'Rept.'
-    report_type = report_type.replace('.', '').lower()  # Remove periods and convert to lowercase
-    congress, number = parts[2].split('-')  # Split the third part into Congress number and report number
+    report_type = parts[0] + parts[1].replace('ept.', 'pt.')
+    report_type = report_type.replace('.', '').lower()
+    congress, number = parts[2].split('-')
     return report_type, congress, number
 
 
